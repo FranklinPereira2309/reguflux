@@ -2,46 +2,15 @@ import express from 'express';
 import { createServer as createViteServer } from 'vite';
 import { createServer } from 'http';
 import { Server } from 'socket.io';
-import Database from 'better-sqlite3';
-import { format } from 'date-fns';
+import pkg from 'pg';
+const { Pool } = pkg;
+import dotenv from 'dotenv';
 
-const db = new Database('fluxomed.db');
+dotenv.config();
 
-// Initialize SQLite Database (Simulating PostgreSQL)
-db.exec(`
-  CREATE TABLE IF NOT EXISTS sectors (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    name TEXT NOT NULL,
-    prefix TEXT NOT NULL UNIQUE,
-    created_at DATETIME DEFAULT CURRENT_TIMESTAMP
-  );
-
-  CREATE TABLE IF NOT EXISTS queue_tickets (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    sector_id INTEGER NOT NULL,
-    patient_name TEXT NOT NULL,
-    ticket_number INTEGER NOT NULL,
-    ticket_code TEXT NOT NULL,
-    is_priority BOOLEAN DEFAULT 0,
-    status TEXT DEFAULT 'WAITING',
-    called_at DATETIME,
-    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-    FOREIGN KEY (sector_id) REFERENCES sectors(id)
-  );
-
-  -- Create unique index for daily sequence per sector
-  CREATE UNIQUE INDEX IF NOT EXISTS idx_unique_ticket_per_sector_per_day 
-  ON queue_tickets(sector_id, ticket_number, date(created_at));
-`);
-
-// Seed sectors if empty
-const sectorCount = db.prepare('SELECT COUNT(*) as count FROM sectors').get() as { count: number };
-if (sectorCount.count === 0) {
-  const insertSector = db.prepare('INSERT INTO sectors (name, prefix) VALUES (?, ?)');
-  insertSector.run('Ortopedia', 'ORT');
-  insertSector.run('Clínica Geral', 'CLI');
-  insertSector.run('Pediatria', 'PED');
-}
+const pool = new Pool({
+  connectionString: process.env.DATABASE_URL || 'postgresql://postgres:postgres@localhost:5432/reguflux'
+});
 
 async function startServer() {
   const app = express();
@@ -49,156 +18,159 @@ async function startServer() {
   const io = new Server(httpServer, {
     cors: { origin: '*' }
   });
-  const PORT = 3000;
 
   app.use(express.json());
 
   // API Routes
-  app.get('/api/sectors', (req, res) => {
-    const sectors = db.prepare('SELECT * FROM sectors').all();
-    res.json(sectors);
+  const seedDatabase = async () => {
+    try {
+      const sectorCount = await pool.query('SELECT COUNT(*) FROM sectors');
+      if (parseInt(sectorCount.rows[0].count) === 0) {
+        console.log('Seeding database with default sectors...');
+        await pool.query("INSERT INTO sectors (name, prefix) VALUES ('Ortopedia', 'ORT'), ('Clínica Geral', 'CLI'), ('Pediatria', 'PED')");
+      }
+    } catch (err) {
+      console.error('Error seeding database:', err);
+    }
+  };
+  await seedDatabase();
+
+  app.get('/api/sectors', async (req, res) => {
+    try {
+      const result = await pool.query('SELECT * FROM sectors');
+      res.json(result.rows);
+    } catch (error) {
+      res.status(500).json({ error: 'Failed to fetch sectors' });
+    }
   });
 
-  // Endpoint de criação de senha (lidando com a concorrência)
-  app.post('/api/tickets', (req, res) => {
+  app.post('/api/tickets', async (req, res) => {
     const { sector_id, patient_name, is_priority } = req.body;
-    
+
     if (!sector_id || !patient_name) {
       return res.status(400).json({ error: 'Missing required fields' });
     }
 
+    const client = await pool.connect();
     try {
-      // Usando transaction para garantir a consistência e evitar concorrência
-      const createTicket = db.transaction(() => {
-        const today = new Date().toISOString().split('T')[0];
-        
-        // Em PostgreSQL usaríamos: SELECT COALESCE(MAX(ticket_number), 0) FROM queue_tickets WHERE sector_id = $1 AND DATE(created_at) = CURRENT_DATE FOR UPDATE
-        // No SQLite, a transaction já bloqueia o banco, garantindo a atomicidade
-        const lastTicket = db.prepare(`
-          SELECT MAX(ticket_number) as max_number 
-          FROM queue_tickets 
-          WHERE sector_id = ? AND date(created_at) = ?
-        `).get(sector_id, today) as { max_number: number | null };
+      await client.query('BEGIN');
 
-        const nextNumber = (lastTicket.max_number || 0) + 1;
-        
-        const sector = db.prepare('SELECT prefix FROM sectors WHERE id = ?').get(sector_id) as { prefix: string };
-        if (!sector) throw new Error('Sector not found');
+      const sectorResult = await client.query('SELECT prefix FROM sectors WHERE id = $1', [sector_id]);
+      if (sectorResult.rows.length === 0) {
+        throw new Error('Sector not found');
+      }
+      const prefix = sectorResult.rows[0].prefix;
 
-        const ticketCode = `${sector.prefix}-${nextNumber.toString().padStart(3, '0')}`;
+      const lastTicketResult = await client.query(`
+        SELECT MAX(ticket_number) as max_number 
+        FROM queue_tickets 
+        WHERE sector_id = $1 AND created_at::DATE = CURRENT_DATE
+        FOR UPDATE
+      `, [sector_id]);
 
-        const insert = db.prepare(`
-          INSERT INTO queue_tickets (sector_id, patient_name, ticket_number, ticket_code, is_priority, status)
-          VALUES (?, ?, ?, ?, ?, 'WAITING')
-        `);
-        
-        const result = insert.run(sector_id, patient_name, nextNumber, ticketCode, is_priority ? 1 : 0);
-        
-        return db.prepare('SELECT * FROM queue_tickets WHERE id = ?').get(result.lastInsertRowid);
-      });
+      const nextNumber = (lastTicketResult.rows[0].max_number || 0) + 1;
+      const ticketCode = `${prefix}-${nextNumber.toString().padStart(3, '0')}`;
 
-      const newTicket = createTicket();
-      
-      // Emitir evento WebSocket para atualizar a lista de espera
+      const insertResult = await client.query(`
+        INSERT INTO queue_tickets (sector_id, patient_name, ticket_number, ticket_code, is_priority, status)
+        VALUES ($1, $2, $3, $4, $5, 'WAITING')
+        RETURNING *
+      `, [sector_id, patient_name, nextNumber, ticketCode, !!is_priority]);
+
+      const newTicket = insertResult.rows[0];
+
+      await client.query('COMMIT');
       io.emit('queue_updated', { sector_id });
-      
       res.status(201).json(newTicket);
     } catch (error: any) {
+      await client.query('ROLLBACK');
       console.error('Error creating ticket:', error);
       res.status(500).json({ error: 'Failed to create ticket', details: error.message });
+    } finally {
+      client.release();
     }
   });
 
-  // Obter fila de um setor
-  app.get('/api/queue/:sector_id', (req, res) => {
+  app.get('/api/queue/:sector_id', async (req, res) => {
     const { sector_id } = req.params;
-    const today = new Date().toISOString().split('T')[0];
-    
-    // Regra de prioridade: is_priority primeiro, depois ordem de chegada
-    const queue = db.prepare(`
-      SELECT * FROM queue_tickets 
-      WHERE sector_id = ? AND date(created_at) = ? AND status = 'WAITING'
-      ORDER BY is_priority DESC, created_at ASC
-    `).all(sector_id, today);
-    
-    res.json(queue);
-  });
-
-  // Obter ticket específico
-  app.get('/api/tickets/:id', (req, res) => {
-    const ticket = db.prepare('SELECT * FROM queue_tickets WHERE id = ?').get(req.params.id);
-    if (!ticket) return res.status(404).json({ error: 'Ticket not found' });
-    
-    // Calcular posição na fila
-    const today = new Date().toISOString().split('T')[0];
-    const queue = db.prepare(`
-      SELECT id FROM queue_tickets 
-      WHERE sector_id = ? AND date(created_at) = ? AND status = 'WAITING'
-      ORDER BY is_priority DESC, created_at ASC
-    `).all((ticket as any).sector_id, today) as { id: number }[];
-    
-    const position = queue.findIndex(q => q.id === (ticket as any).id) + 1;
-    
-    res.json({ ...ticket, position });
-  });
-
-  // Chamar próximo paciente (Médico)
-  app.post('/api/queue/:sector_id/call', (req, res) => {
-    const { sector_id } = req.params;
-    const today = new Date().toISOString().split('T')[0];
-
     try {
-      const callNext = db.transaction(() => {
-        // Encontra o próximo paciente (prioridade primeiro, depois mais antigo)
-        const nextTicket = db.prepare(`
-          SELECT * FROM queue_tickets 
-          WHERE sector_id = ? AND date(created_at) = ? AND status = 'WAITING'
-          ORDER BY is_priority DESC, created_at ASC
-          LIMIT 1
-        `).get(sector_id, today) as any;
+      const result = await pool.query(`
+        SELECT * FROM queue_tickets 
+        WHERE sector_id = $1 AND created_at::DATE = CURRENT_DATE AND status = 'WAITING'
+        ORDER BY is_priority DESC, created_at ASC
+      `, [sector_id]);
+      res.json(result.rows);
+    } catch (error) {
+      res.status(500).json({ error: 'Failed to fetch queue' });
+    }
+  });
 
-        if (!nextTicket) return null;
+  app.get('/api/tickets/:id', async (req, res) => {
+    try {
+      const ticketResult = await pool.query('SELECT * FROM queue_tickets WHERE id = $1', [req.params.id]);
+      if (ticketResult.rows.length === 0) return res.status(404).json({ error: 'Ticket not found' });
+      const ticket = ticketResult.rows[0];
+      const queueResult = await pool.query(`
+        SELECT id FROM queue_tickets 
+        WHERE sector_id = $1 AND created_at::DATE = CURRENT_DATE AND status = 'WAITING'
+        ORDER BY is_priority DESC, created_at ASC
+      `, [ticket.sector_id]);
+      const position = queueResult.rows.findIndex(q => q.id === ticket.id) + 1;
+      res.json({ ...ticket, position });
+    } catch (error) {
+      res.status(500).json({ error: 'Failed to fetch ticket' });
+    }
+  });
 
-        // Atualiza o status para CALLED
-        db.prepare(`
-          UPDATE queue_tickets 
-          SET status = 'CALLED', called_at = CURRENT_TIMESTAMP 
-          WHERE id = ?
-        `).run(nextTicket.id);
+  app.post('/api/queue/:sector_id/call', async (req, res) => {
+    const { sector_id } = req.params;
+    const client = await pool.connect();
+    try {
+      await client.query('BEGIN');
+      const nextTicketResult = await client.query(`
+        SELECT * FROM queue_tickets 
+        WHERE sector_id = $1 AND created_at::DATE = CURRENT_DATE AND status = 'WAITING'
+        ORDER BY is_priority DESC, created_at ASC
+        LIMIT 1
+        FOR UPDATE SKIP LOCKED
+      `, [sector_id]);
 
-        return db.prepare('SELECT * FROM queue_tickets WHERE id = ?').get(nextTicket.id);
-      });
-
-      const calledTicket = callNext();
-
-      if (!calledTicket) {
+      if (nextTicketResult.rows.length === 0) {
+        await client.query('COMMIT');
         return res.status(404).json({ message: 'Queue is empty' });
       }
 
-      const sector = db.prepare('SELECT name FROM sectors WHERE id = ?').get(sector_id) as any;
+      const nextTicket = nextTicketResult.rows[0];
+      const updateResult = await client.query(`
+        UPDATE queue_tickets 
+        SET status = 'CALLED', called_at = CURRENT_TIMESTAMP 
+        WHERE id = $1
+        RETURNING *
+      `, [nextTicket.id]);
 
-      // EMITIR EVENTOS WEBSOCKET
-      // 1. Atualiza a TV da sala de espera
-      io.emit('ticket_called', { 
-        ticket: calledTicket, 
-        sector_name: sector.name,
-        room: `Consultório ${Math.floor(Math.random() * 5) + 1}` // Simulação de sala
+      const calledTicket = updateResult.rows[0];
+      const sectorResult = await client.query('SELECT name FROM sectors WHERE id = $1', [sector_id]);
+      const sectorName = sectorResult.rows[0].name;
+
+      await client.query('COMMIT');
+
+      io.emit('ticket_called', {
+        ticket: calledTicket,
+        sector_name: sectorName,
+        room: `Consultório ${Math.floor(Math.random() * 5) + 1}`
       });
-      
-      // 2. Atualiza a lista de espera dos médicos/recepção
       io.emit('queue_updated', { sector_id });
-      
-      // 3. Notifica o paciente específico no celular
       io.emit(`ticket_update_${calledTicket.id}`, calledTicket);
-
       res.json(calledTicket);
     } catch (error: any) {
+      await client.query('ROLLBACK');
       console.error('Error calling next ticket:', error);
       res.status(500).json({ error: 'Failed to call next ticket' });
+    } finally {
+      client.release();
     }
   });
 
-  // WebSocket Connection
   io.on('connection', (socket) => {
     console.log('Client connected:', socket.id);
     socket.on('disconnect', () => {
@@ -206,8 +178,21 @@ async function startServer() {
     });
   });
 
-  // Vite middleware for development
-  if (process.env.NODE_ENV !== 'production') {
+  const PORT = process.env.PORT || 3000;
+
+  if (process.env.NODE_ENV === 'production') {
+    const path = await import('path');
+    const { fileURLToPath } = await import('url');
+    const __filename = fileURLToPath(import.meta.url);
+    const __dirname = path.dirname(__filename);
+
+    app.use(express.static(path.join(__dirname, 'dist')));
+
+    app.get('*', (req, res, next) => {
+      if (req.path.startsWith('/api')) return next();
+      res.sendFile(path.join(__dirname, 'dist', 'index.html'));
+    });
+  } else {
     const vite = await createViteServer({
       server: { middlewareMode: true },
       appType: 'spa',
@@ -217,6 +202,7 @@ async function startServer() {
 
   httpServer.listen(PORT, '0.0.0.0', () => {
     console.log(`Server running on http://localhost:${PORT}`);
+    console.log(`Environment: ${process.env.NODE_ENV || 'development'}`);
   });
 }
 

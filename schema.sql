@@ -1,4 +1,4 @@
--- Modelagem do Banco de Dados PostgreSQL para o FluxoMed
+-- Modelagem do Banco de Dados PostgreSQL para o ReguFlux
 
 -- Tabela de Setores
 CREATE TABLE sectors (

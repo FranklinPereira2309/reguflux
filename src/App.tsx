@@ -32,14 +32,14 @@ export default function App() {
       {/* Header */}
       <header className="bg-white shadow-sm border-b border-slate-200 p-4">
         <div className="max-w-7xl mx-auto flex items-center justify-between">
-          <div 
-            className="flex items-center gap-2 cursor-pointer" 
+          <div
+            className="flex items-center gap-2 cursor-pointer"
             onClick={() => setView('home')}
           >
             <div className="bg-indigo-600 p-2 rounded-lg">
               <Stethoscope className="w-6 h-6 text-white" />
             </div>
-            <h1 className="text-xl font-bold text-slate-800 tracking-tight">FluxoMed</h1>
+            <h1 className="text-xl font-bold text-slate-800 tracking-tight">ReguFlux</h1>
           </div>
           <nav className="hidden md:flex gap-4">
             <button onClick={() => setView('patient')} className="text-sm font-medium text-slate-600 hover:text-indigo-600">Paciente</button>
@@ -65,26 +65,26 @@ export default function App() {
 function HomeView({ setView }: { setView: (v: any) => void }) {
   return (
     <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 mt-8">
-      <DashboardCard 
-        title="Painel do Paciente" 
+      <DashboardCard
+        title="Painel do Paciente"
         description="Acesso via QR Code para gerar senha digital."
         icon={<Smartphone className="w-8 h-8 text-indigo-500" />}
         onClick={() => setView('patient')}
       />
-      <DashboardCard 
-        title="Painel da Recepção" 
+      <DashboardCard
+        title="Painel da Recepção"
         description="Geração manual de senhas e prioridades."
         icon={<Users className="w-8 h-8 text-emerald-500" />}
         onClick={() => setView('reception')}
       />
-      <DashboardCard 
-        title="Painel do Médico" 
+      <DashboardCard
+        title="Painel do Médico"
         description="Lista de espera e chamada de pacientes."
         icon={<Stethoscope className="w-8 h-8 text-blue-500" />}
         onClick={() => setView('doctor')}
       />
-      <DashboardCard 
-        title="Painel da TV" 
+      <DashboardCard
+        title="Painel da TV"
         description="Exibição em tempo real das senhas chamadas."
         icon={<Monitor className="w-8 h-8 text-amber-500" />}
         onClick={() => setView('tv')}
@@ -95,7 +95,7 @@ function HomeView({ setView }: { setView: (v: any) => void }) {
 
 function DashboardCard({ title, description, icon, onClick }: any) {
   return (
-    <div 
+    <div
       onClick={onClick}
       className="bg-white p-6 rounded-2xl shadow-sm border border-slate-100 hover:shadow-md hover:border-indigo-100 transition-all cursor-pointer flex flex-col items-center text-center gap-4"
     >
@@ -142,7 +142,7 @@ function PatientView() {
   const generateTicket = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!selectedSector || !name) return;
-    
+
     setLoading(true);
     try {
       const res = await fetch('/api/tickets', {
@@ -166,7 +166,7 @@ function PatientView() {
         <div className="text-6xl font-bold text-indigo-600 tracking-tighter mb-6">
           {ticket.ticket_code}
         </div>
-        
+
         <div className="bg-slate-50 rounded-2xl p-6 mb-6">
           <p className="text-slate-600 mb-1">Paciente</p>
           <p className="text-lg font-semibold text-slate-800">{ticket.patient_name}</p>
@@ -198,8 +198,8 @@ function PatientView() {
       <form onSubmit={generateTicket} className="space-y-6">
         <div>
           <label className="block text-sm font-medium text-slate-700 mb-2">Seu Nome Completo</label>
-          <input 
-            type="text" 
+          <input
+            type="text"
             required
             value={name}
             onChange={e => setName(e.target.value)}
@@ -212,7 +212,7 @@ function PatientView() {
           <label className="block text-sm font-medium text-slate-700 mb-2">Setor de Atendimento</label>
           <div className="grid grid-cols-1 gap-3">
             {sectors.map(sector => (
-              <div 
+              <div
                 key={sector.id}
                 onClick={() => setSelectedSector(sector.id)}
                 className={`p-4 rounded-xl border-2 cursor-pointer transition-all ${selectedSector === sector.id ? 'border-indigo-600 bg-indigo-50' : 'border-slate-100 hover:border-slate-300'}`}
@@ -223,8 +223,8 @@ function PatientView() {
           </div>
         </div>
 
-        <button 
-          type="submit" 
+        <button
+          type="submit"
           disabled={!selectedSector || !name || loading}
           className="w-full bg-indigo-600 hover:bg-indigo-700 text-white font-medium py-4 rounded-xl transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex justify-center items-center gap-2"
         >
@@ -253,7 +253,7 @@ function ReceptionView() {
   const generateTicket = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!selectedSector || !name) return;
-    
+
     try {
       const res = await fetch('/api/tickets', {
         method: 'POST',
@@ -281,8 +281,8 @@ function ReceptionView() {
           <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
             <div>
               <label className="block text-sm font-medium text-slate-700 mb-2">Nome do Paciente</label>
-              <input 
-                type="text" 
+              <input
+                type="text"
                 required
                 value={name}
                 onChange={e => setName(e.target.value)}
@@ -290,11 +290,11 @@ function ReceptionView() {
                 placeholder="Ex: Maria Oliveira"
               />
             </div>
-            
+
             <div>
               <label className="block text-sm font-medium text-slate-700 mb-2">Setor</label>
-              <select 
-                value={selectedSector || ''} 
+              <select
+                value={selectedSector || ''}
                 onChange={e => setSelectedSector(Number(e.target.value))}
                 className="w-full px-4 py-3 rounded-xl border border-slate-200 focus:ring-2 focus:ring-emerald-500 focus:border-emerald-500 outline-none bg-white"
               >
@@ -304,8 +304,8 @@ function ReceptionView() {
           </div>
 
           <div className="flex items-center gap-3 p-4 bg-slate-50 rounded-xl border border-slate-100">
-            <input 
-              type="checkbox" 
+            <input
+              type="checkbox"
               id="priority"
               checked={isPriority}
               onChange={e => setIsPriority(e.target.checked)}
@@ -316,8 +316,8 @@ function ReceptionView() {
             </label>
           </div>
 
-          <button 
-            type="submit" 
+          <button
+            type="submit"
             disabled={!selectedSector || !name}
             className="bg-emerald-600 hover:bg-emerald-700 text-white font-medium px-8 py-4 rounded-xl transition-colors disabled:opacity-50 flex items-center gap-2"
           >
@@ -329,7 +329,7 @@ function ReceptionView() {
 
       <div className="bg-slate-800 text-white p-8 rounded-3xl shadow-lg flex flex-col items-center justify-center text-center">
         <h3 className="text-slate-400 font-medium mb-6 uppercase tracking-widest text-sm">Último Ticket Impresso</h3>
-        
+
         {lastTicket ? (
           <div className="bg-white text-slate-900 w-full p-6 rounded-2xl shadow-inner relative overflow-hidden">
             <div className="absolute top-0 left-0 w-full h-2 bg-emerald-500"></div>
@@ -373,7 +373,7 @@ function DoctorView() {
 
   useEffect(() => {
     fetchQueue();
-    
+
     socket.on('queue_updated', (data: { sector_id: number }) => {
       if (data.sector_id === selectedSector) {
         fetchQueue();
@@ -402,9 +402,9 @@ function DoctorView() {
           <Stethoscope className="w-8 h-8 text-blue-500" />
           <h2 className="text-2xl font-bold text-slate-800">Painel do Médico</h2>
         </div>
-        
-        <select 
-          value={selectedSector || ''} 
+
+        <select
+          value={selectedSector || ''}
           onChange={e => setSelectedSector(Number(e.target.value))}
           className="px-4 py-2 rounded-lg border border-slate-200 focus:ring-2 focus:ring-blue-500 outline-none bg-white font-medium"
         >
@@ -415,7 +415,7 @@ function DoctorView() {
       <div className="bg-white rounded-3xl shadow-sm border border-slate-100 overflow-hidden">
         <div className="p-6 border-b border-slate-100 flex justify-between items-center bg-slate-50">
           <h3 className="font-semibold text-slate-700">Fila de Espera ({queue.length})</h3>
-          <button 
+          <button
             onClick={callNext}
             disabled={queue.length === 0}
             className="bg-blue-600 hover:bg-blue-700 text-white font-medium px-6 py-3 rounded-xl transition-colors disabled:opacity-50 flex items-center gap-2 shadow-sm"
@@ -446,7 +446,7 @@ function DoctorView() {
                   </div>
                 </div>
                 <div className="text-sm text-slate-400">
-                  {new Date(ticket.created_at).toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'})}
+                  {new Date(ticket.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
                 </div>
               </div>
             ))
@@ -467,7 +467,7 @@ function TVView() {
       // Play sound
       const audio = new Audio('https://actions.google.com/sounds/v1/alarms/beep_short.ogg');
       audio.play().catch(e => console.log('Audio play blocked by browser'));
-      
+
       setCalledTicket(data);
       setHistory(prev => {
         const newHistory = [data, ...prev].slice(0, 5); // Keep last 5
@@ -487,10 +487,10 @@ function TVView() {
           <div className="bg-indigo-600 p-2 rounded-lg">
             <Stethoscope className="w-8 h-8 text-white" />
           </div>
-          <h1 className="text-3xl font-bold tracking-tight">FluxoMed</h1>
+          <h1 className="text-3xl font-bold tracking-tight">ReguFlux</h1>
         </div>
         <div className="text-2xl font-medium text-slate-400">
-          {new Date().toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'})}
+          {new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
         </div>
       </header>
 
