@@ -9,7 +9,8 @@ import dotenv from 'dotenv';
 dotenv.config();
 
 const pool = new Pool({
-  connectionString: process.env.DATABASE_URL || 'postgresql://postgres:postgres@localhost:5432/reguflux'
+  connectionString: process.env.DATABASE_URL || 'postgresql://postgres:postgres@localhost:5432/reguflux',
+  ssl: process.env.DATABASE_URL ? { rejectUnauthorized: false } : false
 });
 
 async function startServer() {
@@ -39,8 +40,9 @@ async function startServer() {
     try {
       const result = await pool.query('SELECT * FROM sectors');
       res.json(result.rows);
-    } catch (error) {
-      res.status(500).json({ error: 'Failed to fetch sectors' });
+    } catch (error: any) {
+      console.error('API Error /api/sectors:', error.message, error.stack);
+      res.status(500).json({ error: 'Failed to fetch sectors', details: error.message });
     }
   });
 
@@ -84,7 +86,7 @@ async function startServer() {
       res.status(201).json(newTicket);
     } catch (error: any) {
       await client.query('ROLLBACK');
-      console.error('Error creating ticket:', error);
+      console.error('API Error /api/tickets:', error.message, error.stack);
       res.status(500).json({ error: 'Failed to create ticket', details: error.message });
     } finally {
       client.release();
@@ -100,8 +102,9 @@ async function startServer() {
         ORDER BY is_priority DESC, created_at ASC
       `, [sector_id]);
       res.json(result.rows);
-    } catch (error) {
-      res.status(500).json({ error: 'Failed to fetch queue' });
+    } catch (error: any) {
+      console.error('API Error /api/queue/:sector_id:', error.message, error.stack);
+      res.status(500).json({ error: 'Failed to fetch queue', details: error.message });
     }
   });
 
@@ -117,8 +120,9 @@ async function startServer() {
       `, [ticket.sector_id]);
       const position = queueResult.rows.findIndex(q => q.id === ticket.id) + 1;
       res.json({ ...ticket, position });
-    } catch (error) {
-      res.status(500).json({ error: 'Failed to fetch ticket' });
+    } catch (error: any) {
+      console.error('API Error /api/tickets/:id:', error.message, error.stack);
+      res.status(500).json({ error: 'Failed to fetch ticket', details: error.message });
     }
   });
 
@@ -164,8 +168,8 @@ async function startServer() {
       res.json(calledTicket);
     } catch (error: any) {
       await client.query('ROLLBACK');
-      console.error('Error calling next ticket:', error);
-      res.status(500).json({ error: 'Failed to call next ticket' });
+      console.error('API Error /api/queue/:sector_id/call:', error.message, error.stack);
+      res.status(500).json({ error: 'Failed to call next ticket', details: error.message });
     } finally {
       client.release();
     }
@@ -178,7 +182,7 @@ async function startServer() {
     });
   });
 
-  const PORT = process.env.PORT || 3000;
+  const PORT = parseInt(process.env.PORT || '3000', 10);
 
   if (process.env.NODE_ENV === 'production') {
     const path = await import('path');
