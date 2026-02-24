@@ -57,7 +57,7 @@ async function startServer() {
     try {
       await client.query('BEGIN');
 
-      const sectorResult = await client.query('SELECT prefix FROM sectors WHERE id = $1', [sector_id]);
+      const sectorResult = await client.query('SELECT prefix FROM sectors WHERE id = $1 FOR UPDATE', [sector_id]);
       if (sectorResult.rows.length === 0) {
         throw new Error('Sector not found');
       }
@@ -67,7 +67,6 @@ async function startServer() {
         SELECT MAX(ticket_number) as max_number 
         FROM queue_tickets 
         WHERE sector_id = $1 AND created_at::DATE = CURRENT_DATE
-        FOR UPDATE
       `, [sector_id]);
 
       const nextNumber = (lastTicketResult.rows[0].max_number || 0) + 1;
