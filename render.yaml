@@ -6,13 +6,6 @@ services:
     startCommand: npm start
     envVars:
       - key: DATABASE_URL
-        fromDatabase:
-          name: reguflux-db
-          property: connectionString
+        sync: false # Set manually in Render dashboard from Neon
       - key: NODE_ENV
         value: production
-
-databases:
-  - name: reguflux-db
-    databaseName: reguflux
-    plan: free
