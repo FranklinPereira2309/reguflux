@@ -18,11 +18,11 @@ CREATE TABLE queue_tickets (
     is_priority BOOLEAN DEFAULT FALSE, -- Fura-fila para idosos, gestantes, etc.
     status VARCHAR(20) DEFAULT 'WAITING', -- WAITING, CALLED, COMPLETED, CANCELLED
     called_at TIMESTAMP WITH TIME ZONE, -- Quando o médico chamou
-    created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
-    
-    -- Restrição para garantir que não haja números duplicados no mesmo setor no mesmo dia
-    CONSTRAINT unique_ticket_per_sector_per_day UNIQUE (sector_id, ticket_number, (created_at::DATE))
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
 );
+
+-- Restrição para garantir que não haja números duplicados no mesmo setor no mesmo dia
+CREATE UNIQUE INDEX unique_ticket_per_sector_per_day ON queue_tickets (sector_id, ticket_number, (created_at::DATE));
 
 -- Índices para otimizar buscas frequentes
 CREATE INDEX idx_queue_tickets_sector_status ON queue_tickets(sector_id, status);
